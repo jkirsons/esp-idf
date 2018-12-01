@@ -280,7 +280,7 @@ esp_err_t sdspi_host_init_slot(int slot, const sdspi_slot_config_t* slot_config)
             slot_config->dma_channel);
     if (ret != ESP_OK) {
         ESP_LOGD(TAG, "spi_bus_initialize failed with rc=0x%x", ret);
-        return ret;
+        //return ret;
     }
 
     // Attach the SD card to the SPI bus
@@ -623,6 +623,8 @@ static esp_err_t poll_cmd_response(int slot, sdspi_hw_cmd_t *cmd)
 static esp_err_t start_command_read_blocks(int slot, sdspi_hw_cmd_t *cmd,
         uint8_t *data, uint32_t rx_length)
 {
+    go_idle_clockout(slot);
+
     bool need_stop_command = rx_length > SDSPI_MAX_DATA_LEN;
     spi_transaction_t* t_command = get_transaction(slot);
     *t_command = (spi_transaction_t) {
