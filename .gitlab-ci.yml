@@ -2,8 +2,7 @@ stages:
   - build
   - assign_test
   - host_test
-  - unit_test
-  - integration_test
+  - target_test
   - check
   - deploy
   - post_check
@@ -201,15 +200,15 @@ build_ssc_02:
 build_esp_idf_tests_make:
   <<: *build_esp_idf_unit_test_template
   script:
-    - export EXTRA_CFLAGS="-Werror -Werror=deprecated-declarations"
+    - export EXTRA_CFLAGS=${PEDANTIC_CFLAGS}
     - export EXTRA_CXXFLAGS=${EXTRA_CFLAGS}
     - cd $CI_PROJECT_DIR/tools/unit-test-app
     - MAKEFLAGS= make help # make sure kconfig tools are built in single process
     - make ut-clean-all-configs
     - make ut-build-all-configs
     - python tools/UnitTestParser.py
+    # Check if the tests demand Make built binaries. If not, delete them
     - if [ "$UNIT_TEST_BUILD_SYSTEM" == "make" ]; then exit 0; fi
-    # If Make, delete the CMake built artifacts
     - rm -rf builds output sdkconfig
     - rm -rf components/idf_test/unit_test/TestCaseAll.yml
     - rm -rf components/idf_test/unit_test/CIConfigs/*.yml
@@ -218,16 +217,14 @@ build_esp_idf_tests_cmake:
   <<: *build_esp_idf_unit_test_template
   script:
     - export PATH="$IDF_PATH/tools:$PATH"
-    - export EXTRA_CFLAGS="-Werror -Werror=deprecated-declarations"
+    - export EXTRA_CFLAGS=${PEDANTIC_CFLAGS}
     - export EXTRA_CXXFLAGS=${EXTRA_CFLAGS}
     - cd $CI_PROJECT_DIR/tools/unit-test-app
-    # Build with CMake first
     - idf.py ut-clean-all-configs
     - idf.py ut-build-all-configs
     - python tools/UnitTestParser.py
-    # Check if test demands CMake or Make built binaries. If CMake leave the built artifacts as is then exit.
+    # Check if the tests demand CMake built binaries. If not, delete them
     - if [ "$UNIT_TEST_BUILD_SYSTEM" == "cmake" ]; then exit 0; fi
-    # If Make, delete the CMake built artifacts
     - rm -rf builds output sdkconfig
     - rm -rf components/idf_test/unit_test/TestCaseAll.yml
     - rm -rf components/idf_test/unit_test/CIConfigs/*.yml
@@ -386,9 +383,17 @@ build_docs:
     - make html
     - ../check_doc_warnings.sh
 
-verify_cmake_style:
-  stage: build
+.check_job_template: &check_job_template
+  stage: check
   image: $CI_DOCKER_REGISTRY/esp32-ci-env$BOT_DOCKER_IMAGE_TAG
+  tags:
+    - host_test
+  dependencies: []
+  before_script: *do_nothing_before_no_filter
+
+verify_cmake_style:
+  <<: *check_job_template
+  stage: build
   only:
     variables:
       - $BOT_TRIGGER_WITH_LABEL == null
@@ -584,9 +589,9 @@ test_esp_err_to_name_on_host:
   script:
     - cd ${IDF_PATH}/tools/
     - ${IDF_PATH}/tools/ci/multirun_with_pyenv.sh -p 2.7.15 ./gen_esp_err_to_name.py
-    - git diff --exit-code -- ../components/esp32/esp_err_to_name.c || (echo 'Differences found. Please run gen_esp_err_to_name.py and commit the changes.'; exit 1)
+    - git diff --exit-code -- ../components/esp32/esp_err_to_name.c || { echo 'Differences found. Please run gen_esp_err_to_name.py and commit the changes.'; exit 1; }
     - ${IDF_PATH}/tools/ci/multirun_with_pyenv.sh -p 3.4.8 ./gen_esp_err_to_name.py
-    - git diff --exit-code -- ../components/esp32/esp_err_to_name.c || (echo 'Differences found between running under Python 2 and 3.'; exit 1)
+    - git diff --exit-code -- ../components/esp32/esp_err_to_name.c || { echo 'Differences found between running under Python 2 and 3.'; exit 1; }
 
 test_espcoredump:
   <<: *host_test_template
@@ -685,14 +690,6 @@ check_doc_links:
     - test "${CI_COMMIT_REF_NAME}" = "master" || exit 0
     - cd docs
     - make linkcheck
-
-.check_job_template: &check_job_template
-  stage: check
-  image: $CI_DOCKER_REGISTRY/esp32-ci-env$BOT_DOCKER_IMAGE_TAG
-  tags:
-    - build
-  dependencies: []
-  before_script: *do_nothing_before_no_filter
 
 check_line_endings:
   <<: *check_job_template
@@ -801,7 +798,6 @@ assign_test:
       - $BOT_LABEL_UNIT_TEST
       - $BOT_LABEL_INTEGRATION_TEST
       - $BOT_LABEL_EXAMPLE_TEST
-  before_script: *add_gitlab_key_before
   script:
     # assign example tests
     - python $TEST_FW_PATH/CIAssignExampleTest.py $IDF_PATH/examples $IDF_PATH/.gitlab-ci.yml $EXAMPLE_CONFIG_OUTPUT_PATH
@@ -815,7 +811,7 @@ assign_test:
     - python CIAssignTestCases.py -t $IDF_PATH/components/idf_test/integration_test -c $IDF_PATH/.gitlab-ci.yml -b $IDF_PATH/SSC/ssc_bin
 
 .example_test_template: &example_test_template
-  stage: integration_test
+  stage: target_test
   when: on_success
   only:
     refs:
@@ -871,7 +867,7 @@ assign_test:
 
 .unit_test_template: &unit_test_template
   <<: *example_test_template
-  stage: unit_test
+  stage: target_test
   dependencies:
     - assign_test
     - build_esp_idf_tests_make
@@ -894,7 +890,7 @@ assign_test:
     ENV_FILE: "$CI_PROJECT_DIR/ci-test-runner-configs/$CI_RUNNER_DESCRIPTION/EnvConfig.yml"
 
 .test_template: &test_template
-  stage: integration_test
+  stage: target_test
   when: on_success
   only:
     refs:
@@ -1688,6 +1684,38 @@ UT_016_04:
     - ESP32_IDF
     - UT_T1_I2S
     - psram
+
+UT_017_01:
+  <<: *unit_test_template
+  tags:
+    - ESP32_IDF
+    - UT_T2_1
+
+UT_017_02:
+  <<: *unit_test_template
+  tags:
+    - ESP32_IDF
+    - UT_T2_1
+
+UT_017_03:
+  <<: *unit_test_template
+  tags:
+    - ESP32_IDF
+    - UT_T2_1
+
+UT_017_04:
+  <<: *unit_test_template
+  tags:
+    - ESP32_IDF
+    - UT_T2_1
+    - psram
+
+UT_017_05:
+  <<: *unit_test_template
+  tags:
+    - ESP32_IDF
+    - UT_T2_1
+    - 8Mpsram
 
 UT_601_01:
   <<: *unit_test_template

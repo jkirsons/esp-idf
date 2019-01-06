@@ -18,8 +18,22 @@ endfunction()
 # Needed to for include_next includes to work from within mbedtls
 include_directories("${COMPONENT_PATH}/port/include")
 
+# Needed in order to workaround issue with improper conversion to native path
+# when building on MSYS2. This ensures that when building on MSYS, Unix style 
+# paths are used.
+set(msystem $ENV{MSYSTEM})
+
+if(MSYS OR msystem)
+    set(CMAKE_HOST_UNIX 1)
+endif()
+
 # Import mbedtls library targets
 add_subdirectory(mbedtls)
+
+# Use port specific implementation of net_socket.c instead of one from mbedtls
+get_target_property(src_tls mbedtls SOURCES)
+list(REMOVE_ITEM src_tls net_sockets.c)
+set_property(TARGET mbedtls PROPERTY SOURCES ${src_tls})
 
 set(mbedtls_targets mbedtls mbedcrypto mbedx509)
 
