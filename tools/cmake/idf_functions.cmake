@@ -97,7 +97,7 @@ function(idf_set_global_compile_options)
     endif()
 
     list(APPEND c_compile_options "-std=gnu99")
-    list(APPEND cxx_compile_options "-std=gnu++11" "-fno-rtti")
+    list(APPEND cxx_compile_options "-std=gnu++11")# "-fno-rtti")
 
     if(CONFIG_CXX_EXCEPTIONS)
         list(APPEND cxx_compile_options "-fexceptions")
